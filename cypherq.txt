@@ -1,0 +1,237 @@
+// Load CRASH nodes
+LOAD CSV WITH HEADERS FROM 'file:///crash_nodes.csv' AS row
+CREATE (c:CRASH {
+    ID: toInteger(row.ID),
+    crash_id: toInteger(row.crash_id),
+    number_fatalities: toInteger(row.number_fatalities),
+    speed_limit: toInteger(row.speed_limit)
+});
+
+// INVOLVED_IN: PERSON -> CRASH (Many-to-One)
+// Multiple people can be involved in the same crash
+MATCH (p:PERSON)
+MATCH (c:CRASH)
+WHERE p.ID = c.ID
+CREATE (p)-[:INVOLVED_IN]->(c);
+
+// Load LOCATION nodes
+LOAD CSV WITH HEADERS FROM 'file:///location_nodes.csv' AS row
+CREATE (l:LOCATION {
+    ID: toInteger(row.ID),
+    state: row.state,
+    SA4: row.SA4,
+    LGA: row.LGA,
+    Remoteness: row.Remoteness,
+    road_type: row.road_type
+});
+
+// Load DATETIME nodes
+LOAD CSV WITH HEADERS FROM 'file:///datetime_nodes.csv' AS row
+CREATE (d:DATETIME {
+    ID: toInteger(row.ID),
+    year: toInteger(row.year),
+    month: toInteger(row.month),
+    dayweek: row.dayweek,
+    time: row.time,
+    day_category: row.day_category,
+    time_category: row.time_category
+});
+
+// Load VEHICLE_INVOLVEMENT nodes
+LOAD CSV WITH HEADERS FROM 'file:///vehicle_involvement_nodes.csv' AS row
+CREATE (v:VEHICLE_INVOLVEMENT {
+    ID: toInteger(row.ID),
+    crash_type: row.crash_type,
+    bus: row.bus,
+    heavy_rigid_truck: row.heavy_rigid_truck,
+    articulated_truck: row.articulated_truck
+});
+
+// Load SPECIAL_PERIODS nodes
+LOAD CSV WITH HEADERS FROM 'file:///special_period_nodes.csv' AS row
+CREATE (s:SPECIAL_PERIODS {
+    ID: toInteger(row.ID),
+    Christmas_Period: row.`Christmas Period`,
+    Easter_Period: row.`Easter Period`
+});
+
+
+// OCCURRED_IN: CRASH -> LOCATION (Many-to-One)
+MATCH (c:CRASH)
+MATCH (l:LOCATION)
+WHERE c.ID = l.ID
+CREATE (c)-[:OCCURRED_IN]->(l);
+
+// HAPPENED_ON: CRASH -> DATETIME (Many-to-One)
+MATCH (c:CRASH)
+MATCH (d:DATETIME)
+WHERE c.ID = d.ID
+CREATE (c)-[:HAPPENED_ON]->(d);
+
+// INVOLVED_IN: CRASH -> PERSON (One-to-Many)
+// Since all nodes share the same ID, this creates a 1:1 relationship
+// You may need additional data to properly map multiple people to one crash
+MATCH (c:CRASH)
+MATCH (p:PERSON)
+WHERE c.ID = p.ID
+CREATE (c)-[:INVOLVED_IN]->(p);
+
+// VEHICLES_INVOLVED: CRASH -> VEHICLE_INVOLVEMENT (One-to-One)
+MATCH (c:CRASH)
+MATCH (v:VEHICLE_INVOLVEMENT)
+WHERE c.ID = v.ID
+CREATE (c)-[:VEHICLES_INVOLVED]->(v);
+
+// HAPPENED_DURING: CRASH -> SPECIAL_PERIODS (Many-to-Many)
+MATCH (c:CRASH)
+MATCH (s:SPECIAL_PERIODS)
+WHERE c.ID = s.ID AND (s.Christmas_Period = 'Yes' OR s.Easter_Period = 'Yes')
+CREATE (c)-[:HAPPENED_DURING]->(s);
+
+
+
+A
+
+MATCH (p:PERSON)-[:INVOLVED_IN]->(c:CRASH)-[:OCCURRED_IN]->(l:LOCATION),
+(c)-[:HAPPENED_ON]->(d:DATETIME),
+(c)-[:VEHICLES_INVOLVED]->(v:VEHICLE_INVOLVEMENT)
+WHERE l.state = 'WA'
+AND d.year >= 2020
+AND d.year <= 2024
+AND v.articulated_truck = 'Yes'
+AND c.number_fatalities > 1
+RETURN p.road_user AS road_user,
+p.Age AS age,
+p.gender AS gender,
+l.LGA AS LGA_Name,
+d.month AS month,
+d.year AS year,
+c.number_fatalities AS total_number_of_fatalities
+ORDER BY d.year, d.month, p.Age;
+
+B
+
+MATCH (p:PERSON)-[:INVOLVED_IN]->(c:CRASH)-[:OCCURRED_IN]->(l:LOCATION),
+(c)-[:HAPPENED_DURING]->(s:SPECIAL_PERIODS)
+WHERE p.road_user = 'Motorcycle rider'
+AND l.Remoteness = 'Inner Regional Australia'
+AND c.number_fatalities >= 1
+AND (s.Christmas_Period = 'Yes' OR s.Easter_Period = 'Yes')
+RETURN p.gender AS gender,
+MAX(p.Age) AS maximum_age,
+MIN(p.Age) AS minimum_age
+ORDER BY p.gender;
+
+
+C
+
+MATCH (p:PERSON)-[:INVOLVED_IN]->(c:CRASH)-[:OCCURRED_IN]->(l:LOCATION),
+(c)-[:HAPPENED_ON]->(d:DATETIME)
+WHERE p.road_user = 'Driver'
+AND p.age_group = '17_to_25'
+AND d.year = 2024
+RETURN l.state AS State_name,
+SUM(CASE d.day_category WHEN 'Weekend' THEN 1 ELSE 0 END) AS weekends,
+SUM(CASE d.day_category WHEN 'Weekday' THEN 1 ELSE 0 END) AS weekdays,
+ROUND(AVG(p.Age), 2) AS average_age
+ORDER BY l.state;
+
+D
+
+MATCH (c:CRASH)-[:OCCURRED_IN]->(l:LOCATION),
+(c)-[:HAPPENED_ON]->(dt:DATETIME),
+(p:PERSON)-[:INVOLVED_IN]->(c)
+WHERE l.state = 'WA'
+AND dt.dayweek = 'Friday'
+AND dt.day_category = 'Weekend'
+AND c.number_fatalities > 1
+WITH l.SA4 AS SA4,
+l.Remoteness AS Remoteness,
+l.road_type AS RoadType,
+collect(DISTINCT p.gender) AS genders
+WHERE 'Male' IN genders
+AND 'Female' IN genders
+RETURN SA4, Remoteness, RoadType;
+
+
+
+E
+
+MATCH (c:CRASH)-[:OCCURRED_IN]->(l:LOCATION),
+(c)-[:HAPPENED_ON]->(d:DATETIME)
+WHERE c.number_fatalities >= 1
+AND ((d.time >= '7:00' AND d.time <= '9:00') OR (d.time >= '16:00' AND d.time <= '18:00'))
+WITH l.SA4 AS SA4_name,
+SUM(CASE WHEN d.time >= '7:00' AND d.time <= '9:00' THEN 1 ELSE 0 END) AS Morning_Peak,
+SUM(CASE WHEN d.time >= '16:00' AND d.time <= '18:00' THEN 1 ELSE 0 END) AS Afternoon_Peak
+RETURN SA4_name,
+Morning_Peak,
+Afternoon_Peak
+ORDER BY Morning_Peak DESC
+LIMIT 5;
+
+
+
+
+F
+
+// Step 1: Create CONNECTED_TO relationships (run this FIRST before Query 6)
+MATCH (l1:LOCATION)
+WITH l1
+MATCH (l2:LOCATION)
+WHERE l2.state = l1.state
+  AND l2.LGA > l1.LGA
+WITH l1, l2
+LIMIT 1000
+MERGE (l1)-[:CONNECTED_TO]->(l2)
+MERGE (l2)-[:CONNECTED_TO]->(l1)
+RETURN count(*) AS connections_created;
+
+// Step 2: Execute the path finding query
+MATCH path = (start:LOCATION)-[:CONNECTED_TO]-(mid1:LOCATION)-[:CONNECTED_TO]-(mid2:LOCATION)-[:CONNECTED_TO]-(end:LOCATION)
+WHERE start.LGA < end.LGA
+  AND start.LGA <> mid1.LGA AND start.LGA <> mid2.LGA AND start.LGA <> end.LGA
+  AND mid1.LGA <> mid2.LGA AND mid1.LGA <> end.LGA
+  AND mid2.LGA <> end.LGA
+WITH start.LGA AS Starting_LGA, end.LGA AS Ending_LGA, [start.LGA, mid1.LGA, mid2.LGA, end.LGA] AS Path_LGAs
+RETURN DISTINCT Starting_LGA,
+       Ending_LGA,
+       Path_LGAs
+ORDER BY Starting_LGA ASC, Ending_LGA ASC
+LIMIT 3;
+
+G
+
+MATCH (p:PERSON)-[:INVOLVED_IN]->(c:CRASH)
+MATCH (c)-[:OCCURRED_IN]->(l:LOCATION)
+MATCH (c)-[:HAPPENED_ON]->(dt:DATETIME)
+WHERE p.road_user = 'Pedestrian'
+AND dt.year >= 2021 AND dt.year <= 2024
+AND dt.time_category = 'Night'
+AND l.state IS NOT NULL AND l.state <> ''
+AND l.Remoteness IS NOT NULL AND l.Remoteness <> ''
+WITH l.state AS State, l.Remoteness AS Remoteness, COUNT(p) AS NightTimeFatalities
+RETURN State,
+Remoteness,
+NightTimeFatalities AS `Night-time Pedestrian Fatalities`
+ORDER BY `Night-time Pedestrian Fatalities` DESC
+LIMIT 5;
+
+
+H
+
+MATCH (c:CRASH)
+MATCH (c)-[:OCCURRED_IN]->(l:LOCATION)
+MATCH (c)-[:HAPPENED_ON]->(dt:DATETIME)
+MATCH (c)-[:VEHICLES_INVOLVED]->(v:VEHICLE_INVOLVEMENT)
+WHERE (v.heavy_rigid_truck = 'Yes' OR v.articulated_truck = 'Yes')
+AND dt.year >= 2020 AND dt.year <= 2024
+AND c.number_fatalities >= 1
+AND l.road_type IS NOT NULL AND l.road_type <> ''
+AND dt.time_category IS NOT NULL AND dt.time_category <> ''
+WITH l.road_type AS Road_Type, dt.time_category AS Time_Category, SUM(c.number_fatalities) AS TotalFatalities
+RETURN Road_Type,
+Time_Category,
+TotalFatalities AS `Heavy Truck Fatal Crashes`
+ORDER BY `Heavy Truck Fatal Crashes` DESC
+LIMIT 10;
