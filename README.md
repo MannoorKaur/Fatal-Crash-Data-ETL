@@ -1,2 +1,1 @@
-# Fatal-Crash-Data-ETL
-Built Kimball star in PostgreSQL; Python PostgreSQL 13 · Fatal-Crash Data ETL; Tableau pandas/NumPy 
+Graph Database Design Report: Road Crash Fatality Analysis
